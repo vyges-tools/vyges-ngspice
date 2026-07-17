@@ -27,4 +27,5 @@ LABEL org.opencontainers.image.title="vyges-ngspice" \
       com.vyges.tool.version="${VERSION}" \
       com.vyges.tool.kind="backing-tool" \
       com.vyges.tool.headless="true" \
-      com.vyges.tool.invoke="ngspice"
+      com.vyges.tool.invoke="ngspice" \
+      com.vyges.tool.descriptor="/opt/vyges-ngspice/vyges-tool.json"

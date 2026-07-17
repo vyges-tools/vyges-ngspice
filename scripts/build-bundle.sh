@@ -46,6 +46,24 @@ if [ -x "${SCRIPTS_DIR:-$(dirname "$0")}/provenance.sh" ]; then
     "${SCRIPTS_DIR:-$(dirname "$0")}/provenance.sh" > "$B/manifest.json" || true
 fi
 
+# MCP-friendly tool descriptor (the container/bundle analog of a loom engine's
+# --describe) so the vyges resolve/MCP layer can discover + invoke this tool.
+cat > "$B/vyges-tool.json" <<TOOLJSON
+{
+  "schema": "vyges-tool-descriptor/1.0",
+  "tool": "ngspice",
+  "version": "${VERSION}",
+  "kind": "backing-tool",
+  "headless": true,
+  "provides": ["spice-sim", "transient", "dc", "ac", "osdi-models"],
+  "invoke": { "cli": "ngspice", "batch_flag": "-b" },
+  "env": { "required": [], "optional": ["PDK", "PDK_ROOT", "SPICE_USERINIT_DIR", "SPICE_LIB_DIR"] },
+  "license": "BSD-3-Clause",
+  "upstream_ref": "${NG_REF}",
+  "upstream_commit": "${SHORT}"
+}
+TOOLJSON
+
 echo "== tarball (THE PRODUCT) =="
 ARCH="$(uname -m)"                      # x86_64 or aarch64 — not hardcoded
 TARBALL="${NAME}-linux-${ARCH}.tar.gz"
