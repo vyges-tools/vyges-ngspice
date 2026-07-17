@@ -1,0 +1,30 @@
+# Slim runtime image: the SAME relocatable bundle from scripts/build-bundle.sh on a
+# clean ubuntu:24.04 with only the runtime libs ngspice links (headless: no X).
+# Binary-first — the container wraps the byte-identical bundle that also ships as the tarball.
+#   docker build -f Dockerfile.runtime --build-arg BUNDLE_DIR=<bundle-basename> \
+#     -t ghcr.io/vyges-tools/vyges-ngspice:sha-<short> ./dist
+FROM ubuntu:24.04
+
+ARG BUNDLE_DIR
+ARG VERSION=dev
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      libreadline8 libfftw3-double3 libgomp1 libstdc++6 \
+ && rm -rf /var/lib/apt/lists/*
+
+COPY ${BUNDLE_DIR} /opt/vyges-ngspice
+ENV PATH=/opt/vyges-ngspice/bin:$PATH \
+    LD_LIBRARY_PATH=/opt/vyges-ngspice/lib \
+    SPICE_LIB_DIR=/opt/vyges-ngspice/share/ngspice
+
+# Fail the build if the wrapped binary does not run on the clean base.
+RUN ngspice --version | grep -i ngspice
+
+LABEL org.opencontainers.image.title="vyges-ngspice" \
+      org.opencontainers.image.source="https://github.com/vyges-tools/vyges-ngspice" \
+      org.opencontainers.image.description="Headless (no-X) OSDI-enabled ngspice, pinned + reproducibly built by Vyges." \
+      com.vyges.tool="ngspice" \
+      com.vyges.tool.version="${VERSION}" \
+      com.vyges.tool.kind="backing-tool" \
+      com.vyges.tool.headless="true" \
+      com.vyges.tool.invoke="ngspice"

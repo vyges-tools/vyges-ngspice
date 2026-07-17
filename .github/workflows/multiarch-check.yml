@@ -1,0 +1,59 @@
+name: multiarch-check
+
+# Verify headless OSDI-enabled ngspice BUILDS + smokes on BOTH linux/amd64 and
+# linux/arm64 (native GitHub-hosted runners — free on a public repo). No publish.
+# Run before wiring arm64 into release.yml.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            arch: x86_64
+          - runner: ubuntu-24.04-arm
+            arch: aarch64
+    runs-on: ${{ matrix.runner }}
+    name: build-${{ matrix.arch }}
+    steps:
+      - uses: actions/checkout@v4
+      - run: uname -m
+
+      - name: Read pin from upstream.yaml
+        id: pin
+        run: |
+          REF=$(grep -E '^[[:space:]]*ref:' upstream.yaml | head -1 \
+            | sed -E 's/.*ref:[[:space:]]*//; s/[[:space:]]*#.*//; s/"//g')
+          echo "ref=$REF" >> "$GITHUB_OUTPUT"
+
+      - name: Install build deps (headless — no X)
+        run: |
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
+            build-essential autoconf automake libtool libtool-bin bison flex \
+            libreadline-dev libfftw3-dev git ca-certificates
+
+      - name: Clone ngspice
+        run: git clone https://git.code.sf.net/p/ngspice/ngspice /tmp/ngspice
+
+      - name: Build bundle (arch from uname -m)
+        env:
+          NG_REF: ${{ steps.pin.outputs.ref }}
+          VERSION: ci-${{ matrix.arch }}
+          OUT_DIR: ${{ github.workspace }}/dist
+          NG_TREE: /tmp/ngspice
+        run: bash scripts/build-bundle.sh
+
+      - name: Smoke (version + sim + OSDI on ${{ matrix.arch }})
+        run: |
+          B=$(ls -d dist/vyges-ngspice-ci-${{ matrix.arch }}-g* | head -1)
+          bash scripts/smoke.sh "$B"
+
+      - name: Result
+        run: |
+          echo "### ${{ matrix.arch }} ngspice build OK" >> "$GITHUB_STEP_SUMMARY"
+          ls -la dist/*.tar.gz >> "$GITHUB_STEP_SUMMARY"

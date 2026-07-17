@@ -1,0 +1,22 @@
+# vyges-ngspice build pin — the source of truth for what we build.
+#
+# Self-contained: this repo vendors nothing in-tree. CI clones ngspice at `ref`
+# and BUILDS it headless (--without-x) with OSDI/OpenVAF support — the reason apt
+# ngspice can't simulate modern PDKs (e.g. IHP sg13's PSP103 osdi models). A sync
+# workflow bumps `ref` when a new ngspice release tag appears (opening a PR).
+upstream:
+  source: https://git.code.sf.net/p/ngspice/ngspice   # SourceForge canonical (github mirror lags)
+  ref: ngspice-46                                       # release tag (immutable); has OSDI + OpenVAF
+  commit: ""                                            # resolved from the tag at build time
+  updated_at: "2026-07-17T00:00:00Z"
+
+license:
+  spdx: BSD-3-Clause         # ngspice core is modified-BSD; some XSPICE code models are GPL.
+  note: "built bundle ships ngspice's own COPYING; repo tooling is Apache-2.0 (LICENSE)"
+
+build:
+  base_image: ubuntu:24.04                              # glibc 2.39; LTS; matches runtime base
+  x: none                                               # HEADLESS — --without-x (no plot GUI, no X deps)
+  configure: "--enable-osdi --enable-xspice --without-x --with-readline=yes --disable-debug"
+  # build deps: build-essential autoconf automake libtool bison flex libreadline-dev libfftw3-dev
+  # OSDI models themselves are PDK-side (compiled by OpenVAF); this ships the OSDI-capable ngspice.

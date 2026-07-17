@@ -1,0 +1,12 @@
+vyges-ngspice
+Copyright 2026 Vyges (https://vyges.com)
+
+This repository's tooling (Dockerfile, scripts, workflows) is licensed under the
+Apache License, Version 2.0 (see LICENSE).
+
+This repository vendors no third-party source. CI clones ngspice at the pinned ref
+(upstream.yaml) and BUILDS it headless (--without-x, --enable-osdi). The built
+artifact is ngspice — modified-BSD core with some GPL XSPICE code models — and each
+bundle ships ngspice's own license as LICENSE.ngspice.
+
+ngspice: https://ngspice.sourceforge.io/
