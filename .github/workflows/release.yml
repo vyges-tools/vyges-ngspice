@@ -1,14 +1,14 @@
 name: release
 
-# Build headless OSDI-enabled ngspice at the pinned ref and publish MULTI-ARCH
-# artifacts: relocatable tar.gz per arch (GitHub Release) + a multi-arch container
-# manifest (ghcr.io). Native runners (amd64 + arm64) — free on a public repo.
+# De-facto Vyges multi-arch build: native per-arch builds + DIGEST-based manifest
+# merge -> clean tags only (:sha-<short> / :<version> / :latest, multi-arch; NO
+# intermediate per-arch tags, NO attestation entries). Native runners, public repo.
 
 on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Release version (e.g. 46 or 46.0)"
+        description: "Release version (e.g. 46)"
         required: true
 
 permissions:
@@ -73,6 +73,8 @@ jobs:
           name: tarball-${{ matrix.arch }}
           path: dist/*.tar.gz
 
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
       - name: Log in to ghcr.io
         uses: docker/login-action@v3
         with:
@@ -80,39 +82,64 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build, smoke + push per-arch image
+      - name: Build + push image BY DIGEST (native ${{ matrix.docker_arch }})
         env:
           VERSION: ${{ inputs.version }}
           SHORT: ${{ steps.bb.outputs.short }}
           DA: ${{ matrix.docker_arch }}
         run: |
-          docker build -f Dockerfile.runtime \
+          docker buildx build -f Dockerfile.runtime \
             --build-arg BUNDLE_DIR="vyges-ngspice-${VERSION}-g${SHORT}" \
             --build-arg VERSION="${VERSION}" \
-            -t "$IMG:sha-${SHORT}-${DA}" dist
-          bash scripts/smoke.sh "$IMG:sha-${SHORT}-${DA}"
-          docker push "$IMG:sha-${SHORT}-${DA}"
+            --platform "linux/${DA}" --provenance=false \
+            --output "type=image,name=${IMG},push-by-digest=true,name-canonical=true,push=true" \
+            --metadata-file /tmp/meta.json dist
+          DIGEST=$(jq -r '."containerimage.digest"' /tmp/meta.json)
+          echo "pushed $IMG@$DIGEST"
+          mkdir -p /tmp/digests && touch "/tmp/digests/${DIGEST#sha256:}"
+          echo "SHORT=${SHORT}" > /tmp/short.env
+
+      - name: Upload digest + short
+        uses: actions/upload-artifact@v4
+        with:
+          name: digest-${{ matrix.arch }}
+          path: |
+            /tmp/digests/*
+          if-no-files-found: error
+
+      - name: Upload short marker
+        if: matrix.arch == 'x86_64'
+        uses: actions/upload-artifact@v4
+        with:
+          name: short
+          path: /tmp/short.env
 
   publish:
     needs: build
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Collect both tarballs
+      - name: Collect tarballs
         uses: actions/download-artifact@v4
         with:
           path: dist
           pattern: tarball-*
           merge-multiple: true
 
-      - name: Derive SHORT from a tarball name
-        id: sh
-        run: |
-          F=$(ls dist/*-linux-x86_64.tar.gz | head -1)
-          SHORT=$(echo "$F" | grep -oE 'g[0-9a-f]{12}' | head -1 | sed 's/^g//')
-          echo "short=$SHORT" >> "$GITHUB_OUTPUT"
+      - name: Collect digests
+        uses: actions/download-artifact@v4
+        with:
+          path: /tmp/digests
+          pattern: digest-*
+          merge-multiple: true
 
+      - name: Collect short marker
+        uses: actions/download-artifact@v4
+        with:
+          name: short
+          path: /tmp
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
       - name: Log in to ghcr.io
         uses: docker/login-action@v3
         with:
@@ -120,16 +147,16 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Create multi-arch manifests (amd64 + arm64)
+      - name: Create multi-arch manifests from digests
         env:
           VERSION: ${{ inputs.version }}
-          SHORT: ${{ steps.sh.outputs.short }}
         run: |
+          source /tmp/short.env
+          SRCS=$(for f in /tmp/digests/*; do echo -n "${IMG}@sha256:$(basename "$f") "; done)
           for TAG in "sha-${SHORT}" "${VERSION}" latest; do
-            docker buildx imagetools create -t "$IMG:${TAG}" \
-              "$IMG:sha-${SHORT}-amd64" "$IMG:sha-${SHORT}-arm64"
+            docker buildx imagetools create -t "${IMG}:${TAG}" $SRCS
           done
-          docker buildx imagetools inspect "$IMG:${VERSION}"
+          docker buildx imagetools inspect "${IMG}:${VERSION}"
 
       - name: Publish GitHub Release (both-arch tarballs)
         uses: softprops/action-gh-release@v2
@@ -138,8 +165,8 @@ jobs:
           name: vyges-ngspice ${{ inputs.version }}
           body: |
             Headless (no-X), OSDI/OpenVAF-enabled ngspice (pinned ${{ inputs.version }}).
-            **Multi-arch: linux/amd64 + linux/arm64.**
+            **Multi-arch: linux/amd64 + linux/arm64** (native builds, digest-based manifest).
             - Tarballs: `…-linux-x86_64.tar.gz` / `…-linux-aarch64.tar.gz` — `source env.sh` then `ngspice`.
             - Image: `ghcr.io/vyges-tools/vyges-ngspice:${{ inputs.version }}` (multi-arch manifest).
-            ngspice license (BSD-style) shipped as LICENSE.ngspice in the bundle; repo tooling Apache-2.0.
+            ngspice license (BSD-style) shipped as LICENSE.ngspice; repo tooling Apache-2.0.
           files: dist/*.tar.gz
