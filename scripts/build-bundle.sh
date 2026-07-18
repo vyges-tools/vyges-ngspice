@@ -30,6 +30,20 @@ B="$OUT_DIR/$NAME"
 rm -rf "$B"; mkdir -p "$B"
 cp -a "$PREFIX/." "$B/"
 
+# Make spinit RELOCATABLE. `make install` bakes the absolute build PREFIX into spinit's
+# `codemodel`/`osdi` paths, so a moved bundle can't find its *.cm / built-in *.osdi.
+# Rewrite the prefix to be $SPICE_LIB_DIR-relative: ngspice expands $VAR (no braces) in
+# codemodel/osdi args — exactly as a PDK .spiceinit does — and SPICE_LIB_DIR (=$D/share/
+# ngspice, set by env.sh) is already required for ngspice to locate spinit at all. So
+# $SPICE_LIB_DIR/../.. resolves to the bundle root $D wherever it lands. NB: ngspice does
+# NOT expand ${VAR} (braces) here — the no-braces form is required.
+SPINIT="$B/share/ngspice/scripts/spinit"
+if [ -f "$SPINIT" ]; then
+  sed -i "s#${PREFIX}#\$SPICE_LIB_DIR/../..#g" "$SPINIT"
+  echo "== spinit relocatable-ized (codemodel/osdi via \$SPICE_LIB_DIR) =="
+  grep -E 'codemodel|^ *osdi' "$SPINIT" | head -2 || true
+fi
+
 # ship ngspice's own license alongside the binary
 for L in COPYING DEVNOTES.md; do [ -f "$NG_TREE/$L" ] && cp "$NG_TREE/$L" "$B/LICENSE.ngspice" && break; done
 
@@ -57,7 +71,7 @@ cat > "$B/vyges-tool.json" <<TOOLJSON
   "headless": true,
   "provides": ["spice-sim", "transient", "dc", "ac", "osdi-models"],
   "invoke": { "cli": "ngspice", "batch_flag": "-b" },
-  "env": { "required": [], "optional": ["PDK", "PDK_ROOT", "SPICE_USERINIT_DIR", "SPICE_LIB_DIR"] },
+  "env": { "required": ["SPICE_LIB_DIR"], "optional": ["PDK", "PDK_ROOT", "SPICE_USERINIT_DIR"] },
   "license": "BSD-3-Clause",
   "upstream_ref": "${NG_REF}",
   "upstream_commit": "${SHORT}"
