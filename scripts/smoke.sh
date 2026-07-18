@@ -16,6 +16,16 @@ echo ">> trivial batch sim (no models)"
 # NOTE: ngspice -b needs a .print/.plot/.save or it refuses ("no simulations run").
 run 'printf "* rc\nV1 a 0 1\nR1 a b 1k\nC1 b 0 1n\n.tran 1u 5u\n.print tran v(b)\n.end\n" > /tmp/rc.sp; ngspice -b /tmp/rc.sp >/dev/null 2>&1 && echo "sim OK"'
 
+echo ">> code models load from the RELOCATED bundle (spinit is relocatable)"
+# spinit runs its `codemodel` lines at startup; if their paths still point at the build
+# prefix (non-relocatable) they fail with "... couldn't be loaded". Run from the extracted
+# bundle (env.sh set SPICE_LIB_DIR to its real location) and assert none failed.
+run 'out=$(printf "* t\nV1 a 0 1\nR1 a 0 1k\n.op\n.end\n" | ngspice -b 2>&1 || true); \
+     if echo "$out" | grep -qi "couldn.t be loaded"; then \
+       echo "FAIL: code models did not load — spinit not relocatable:"; \
+       echo "$out" | grep -i "couldn.t be loaded" | head -3; exit 1; \
+     else echo "code models OK (loaded from relocated bundle)"; fi'
+
 echo ">> OSDI support (best-effort — real OSDI proof is the PDK integration sim)"
 # with --enable-osdi the `osdi` command exists (errors on a bad path, not "unknown").
 # Best-effort + non-fatal: never fail the distro smoke on this (integration validates it).
